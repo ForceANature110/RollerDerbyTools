@@ -45,7 +45,8 @@ TEXT_INPUT_FIELDS = [
 
 @dataclass
 class JamRecord:
-    jam_number: int
+    period_number: int = 1
+    jam_number: int = 1
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     home_jammer: str = ""
@@ -61,6 +62,7 @@ class JamRecord:
     home_star_pass: bool = False
     away_star_pass: bool = False
     lead_jammer: str = "unknown"
+    penalties: List[dict] = field(default_factory=list)
     notes: str = ""
 
 
@@ -110,8 +112,13 @@ class JamAnnotator:
         self.edit_field_index = 0
         self.edit_buffer = ""
         self.show_help = False
+        self.penalty_mode = False
+        self.penalty_skater = ""
+        self.penalty_code = ""
+        self.penalty_team = "home"
+        self.penalty_focus = "skater"
         if not self.data.jams:
-            self.data.jams.append(JamRecord(jam_number=1))
+            self.data.jams.append(JamRecord(period_number=1, jam_number=1))
 
     def _init_audio(self) -> None:
         if vlc is None:
@@ -180,9 +187,19 @@ class JamAnnotator:
             json.dump(payload, f, indent=2)
         print(f"Saved annotations to {self.output_path}")
 
+    def _default_period_for_new_jam(self) -> int:
+        if not self.data.jams:
+            return 1
+        return self.data.jams[-1].period_number
+
+    def _default_jam_number_for_new_jam(self) -> int:
+        if not self.data.jams:
+            return 1
+        return self.data.jams[-1].jam_number + 1
+
     def ensure_current_jam(self) -> JamRecord:
         while self.current_jam_index >= len(self.data.jams):
-            self.data.jams.append(JamRecord(jam_number=len(self.data.jams) + 1))
+            self.data.jams.append(JamRecord(period_number=self._default_period_for_new_jam(), jam_number=self._default_jam_number_for_new_jam()))
         jam = self.data.jams[self.current_jam_index]
         self._apply_score_defaults(jam)
         return jam
@@ -280,10 +297,12 @@ class JamAnnotator:
         self.save()
 
     def next_jam(self) -> None:
+        previous_index = self.current_jam_index
         self.current_jam_index += 1
         jam = self.ensure_current_jam()
         self._apply_score_defaults(jam)
-        print(f"Moved to jam {self.current_jam_index + 1}")
+        self._prefill_next_jam_from_recent_penalties(previous_index, self.current_jam_index)
+        print(f"Moved to period {jam.period_number}, jam {jam.jam_number}")
 
     def jump_to_current_jam_start(self) -> None:
         jam = self.ensure_current_jam()
@@ -338,7 +357,27 @@ class JamAnnotator:
 
     def previous_jam(self) -> None:
         self.current_jam_index = max(0, self.current_jam_index - 1)
-        print(f"Moved to jam {self.current_jam_index + 1}")
+        current = self.ensure_current_jam()
+        print(f"Moved to period {current.period_number}, jam {current.jam_number}")
+
+    def start_next_period(self) -> None:
+        current = self.ensure_current_jam()
+        next_index = self.current_jam_index + 1
+
+        if next_index >= len(self.data.jams):
+            self.data.jams.append(JamRecord(period_number=current.period_number + 1, jam_number=1))
+        else:
+            self.data.jams[next_index].period_number = current.period_number + 1
+            self.data.jams[next_index].jam_number = 1
+            for idx in range(next_index + 1, len(self.data.jams)):
+                if self.data.jams[idx].period_number == current.period_number + 1:
+                    self.data.jams[idx].jam_number = self.data.jams[idx - 1].jam_number + 1
+
+        self.current_jam_index = next_index
+        jam = self.ensure_current_jam()
+        self._apply_score_defaults(jam)
+        print(f"Started period {jam.period_number}, jam {jam.jam_number}")
+        self.save()
 
     def _propagate_scores_from_jam(self, changed_jam_index: int) -> None:
         if changed_jam_index < 0 or changed_jam_index >= len(self.data.jams):
@@ -375,6 +414,7 @@ class JamAnnotator:
             and not jam.home_passes
             and not jam.away_passes
             and jam.lead_jammer == "unknown"
+            and not jam.penalties
             and jam.home_score_start is None
             and jam.away_score_start is None
             and jam.home_score_end is None
@@ -415,6 +455,140 @@ class JamAnnotator:
         self.edit_mode = False
         self.edit_field_index = 0
         self.edit_buffer = ""
+
+    def begin_penalty_mode(self) -> None:
+        self.penalty_mode = True
+        self.penalty_skater = ""
+        self.penalty_code = ""
+        self.penalty_team = "home"
+        self.penalty_focus = "skater"
+
+    def end_penalty_mode(self, save_penalty: bool) -> None:
+        if save_penalty:
+            jam = self.ensure_current_jam()
+            skater = self.penalty_skater.strip()
+            code = self.penalty_code.strip().upper()
+            if skater and code:
+                jam.penalties.append({
+                    "team": self.penalty_team,
+                    "skater": skater,
+                    "code": code,
+                    "time": round(self.current_time_seconds(), 3),
+                })
+                self.save()
+                print(f"Jam {jam.jam_number}: added penalty {code} for {self.penalty_team} skater {skater}")
+        self.penalty_mode = False
+        self.penalty_skater = ""
+        self.penalty_code = ""
+        self.penalty_team = "home"
+        self.penalty_focus = "skater"
+
+    def _handle_penalty_key(self, key: int) -> bool:
+        valid_penalty_codes = {"A", "B", "C", "D", "E", "F", "G", "H", "I", "L", "M", "N", "P", "X"}
+        if key == 255:
+            return True
+        if key == 27:
+            self.end_penalty_mode(save_penalty=False)
+            return True
+        if key in (13, 10):
+            self.end_penalty_mode(save_penalty=True)
+            return True
+        if key == 9:
+            if self.penalty_focus == "skater":
+                self.penalty_focus = "code"
+            elif self.penalty_focus == "code":
+                self.penalty_focus = "team"
+            else:
+                self.penalty_focus = "skater"
+            return True
+        if key in (8, 127):
+            if self.penalty_focus == "skater":
+                self.penalty_skater = self.penalty_skater[:-1]
+            elif self.penalty_focus == "code":
+                self.penalty_code = self.penalty_code[:-1]
+            else:
+                self.penalty_team = "away" if self.penalty_team == "home" else "home"
+            return True
+        if 32 <= key <= 126:
+            ch = chr(key)
+            if self.penalty_focus == "skater" and ch.isdigit():
+                self.penalty_skater += ch
+                return True
+            if self.penalty_focus == "code" and ch.isalpha():
+                up = ch.upper()
+                if up in valid_penalty_codes:
+                    self.penalty_code = up
+                return True
+            if self.penalty_focus == "team" and ch.lower() in {"h", "a"}:
+                self.penalty_team = "home" if ch.lower() == "h" else "away"
+                return True
+        return False
+
+    def _get_position_for_skater_in_jam(self, jam: JamRecord, team: str, skater: str):
+        skater = skater.strip()
+        if not skater:
+            return None
+
+        jammer_value = jam.home_jammer if team == "home" else jam.away_jammer
+        lineup = jam.home_lineup if team == "home" else jam.away_lineup
+
+        if jammer_value and jammer_value.strip() == skater:
+            return ("jammer", None)
+        if len(lineup) > 0 and lineup[0].strip() == skater:
+            return ("pivot", 0)
+        for idx in range(1, len(lineup)):
+            if lineup[idx].strip() == skater:
+                return ("blocker", idx)
+        return None
+
+    def _prefill_next_jam_from_recent_penalties(self, previous_index: int, next_index: int) -> None:
+        if previous_index < 0 or next_index < 0:
+            return
+        if previous_index >= len(self.data.jams) or next_index >= len(self.data.jams):
+            return
+
+        previous_jam = self.data.jams[previous_index]
+        next_jam = self.data.jams[next_index]
+
+        if previous_jam.end_time is None:
+            return
+
+        recent_cutoff = previous_jam.end_time - 30.0
+        for penalty in previous_jam.penalties:
+            try:
+                penalty_time = float(penalty.get("time", -1))
+            except Exception:
+                continue
+            if penalty_time < recent_cutoff:
+                continue
+
+            team = str(penalty.get("team", "")).strip().lower()
+            skater = str(penalty.get("skater", "")).strip()
+            if team not in {"home", "away"} or not skater:
+                continue
+
+            position_info = self._get_position_for_skater_in_jam(previous_jam, team, skater)
+            if position_info is None:
+                continue
+
+            role, slot_index = position_info
+            if role == "jammer":
+                if team == "home" and not next_jam.home_jammer:
+                    next_jam.home_jammer = skater
+                elif team == "away" and not next_jam.away_jammer:
+                    next_jam.away_jammer = skater
+            elif role == "pivot":
+                lineup_attr = "home_lineup" if team == "home" else "away_lineup"
+                lineup = list(getattr(next_jam, lineup_attr))
+                if self._lineup_value_at(lineup, 0) == "":
+                    lineup = self._set_lineup_value_at(lineup, 0, skater)
+                    setattr(next_jam, lineup_attr, lineup)
+            elif role == "blocker" and slot_index is not None:
+                lineup_attr = "home_lineup" if team == "home" else "away_lineup"
+                lineup = list(getattr(next_jam, lineup_attr))
+                if self._lineup_value_at(lineup, slot_index) == "":
+                    lineup = self._set_lineup_value_at(lineup, slot_index, skater)
+                    setattr(next_jam, lineup_attr, lineup)
 
     def _lineup_value_at(self, lineup: List[str], index: int) -> str:
         return lineup[index] if index < len(lineup) else ""
@@ -570,7 +744,7 @@ class JamAnnotator:
         lines = [
             f"Video: {Path(self.video_path).name}",
             f"Time: {self.current_time_seconds():.3f}s   Frame: {self.current_frame_index}/{max(self.total_frames - 1, 0)}   Speed: {self.playback_speed:.2f}x",
-            f"Jam: {jam.jam_number}/{len(self.data.jams)}{'   [EDIT MODE]' if self.edit_mode else ''}",
+            f"Period: {jam.period_number}   Jam: {jam.jam_number}{'   [EDIT MODE]' if self.edit_mode else ''}",
             f"Start: {self._fmt_time(jam.start_time)}   End: {self._fmt_time(jam.end_time)}",
             f"Home jammer: {jam.home_jammer or '-'}   Away jammer: {jam.away_jammer or '-'}",
             f"Home lineup: {self._fmt_lineup(jam.home_lineup)}",
@@ -581,6 +755,7 @@ class JamAnnotator:
             f"Score end   H/A: {self._fmt_int(jam.home_score_end)}/{self._fmt_int(jam.away_score_end)}",
             f"Star pass H/A: {'Y' if jam.home_star_pass else 'N'}/{'Y' if jam.away_star_pass else 'N'}",
             f"Lead: {jam.lead_jammer.upper() if jam.lead_jammer else 'UNKNOWN'}",
+            f"Penalties: {len(jam.penalties)}",
             f"Notes: {jam.notes or '-'}",
         ]
 
@@ -590,6 +765,8 @@ class JamAnnotator:
             "Speed: - slower | = faster | 0 normal speed",
             "Pass hotkeys: Shift+Q/W/E/R/T = home 0/1/2/3/4, Shift+A/S/D/F/G = away 0/1/2/3/4, z/x undo last pass",
             "Lead hotkeys: 1=home, 2=away, 3=none, 4=unknown",
+            "Period hotkey: 5 = start next period and reset jam count",
+            "Penalty hotkey: b = add penalty",
             "Press H to toggle help",
         ]
 
@@ -605,6 +782,8 @@ class JamAnnotator:
 
         if self.edit_mode:
             self.draw_edit_panel(frame)
+        if self.penalty_mode:
+            self.draw_penalty_panel(frame)
 
     def _collect_previous_values(self, field_name: str) -> List[str]:
         values: List[str] = []
@@ -636,6 +815,43 @@ class JamAnnotator:
                 values.append(value)
 
         return values[:12]
+
+    def draw_penalty_panel(self, frame) -> None:
+        h, w = frame.shape[:2]
+        panel = frame.copy()
+        width = min(900, w - 80)
+        height = 290
+        x0 = (w - width) // 2
+        y0 = max(20, h - height - 20)
+        x1 = x0 + width
+        y1 = y0 + height
+
+        cv2.rectangle(panel, (x0, y0), (x1, y1), (20, 20, 20), -1)
+        cv2.rectangle(panel, (x0, y0), (x1, y1), (255, 255, 255), 1)
+        cv2.addWeighted(panel, 0.9, frame, 0.1, 0, frame)
+
+        cv2.putText(frame, "Add Penalty", (x0 + 20, y0 + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame, "Tab cycles fields: skater -> code -> team. Enter saves. Esc cancels.", (x0 + 20, y0 + 65), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220, 220, 220), 1, cv2.LINE_AA)
+
+        skater_color = (180, 220, 255) if self.penalty_focus == "skater" else (255, 255, 255)
+        code_color = (180, 220, 255) if self.penalty_focus == "code" else (255, 255, 255)
+        team_color = (180, 220, 255) if self.penalty_focus == "team" else (255, 255, 255)
+
+        cv2.putText(frame, f"Skater: {self.penalty_skater or '-'}", (x0 + 20, y0 + 110), cv2.FONT_HERSHEY_SIMPLEX, 0.7, skater_color, 1, cv2.LINE_AA)
+        cv2.putText(frame, f"Code: {self.penalty_code or '-'}", (x0 + 260, y0 + 110), cv2.FONT_HERSHEY_SIMPLEX, 0.7, code_color, 1, cv2.LINE_AA)
+        cv2.putText(frame, f"Team: {self.penalty_team.upper()}", (x0 + 460, y0 + 110), cv2.FONT_HERSHEY_SIMPLEX, 0.7, team_color, 1, cv2.LINE_AA)
+
+        cv2.putText(frame, "Official penalty codes:", (x0 + 20, y0 + 150), cv2.FONT_HERSHEY_SIMPLEX, 0.56, (220, 220, 220), 1, cv2.LINE_AA)
+        code_lines = [
+            "A High Block   B Back Block   C Illegal Contact   D Direction",
+            "E Leg Block    F Forearms    G Misconduct        H Blocking with the Head",
+            "I Illegal Procedure   L Low Block   M Multiplayer Block   N Interference",
+            "P Illegal Position   X Cut",
+        ]
+        cy = y0 + 180
+        for line in code_lines:
+            cv2.putText(frame, line, (x0 + 20, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (200, 200, 200), 1, cv2.LINE_AA)
+            cy += 24
 
     def draw_edit_panel(self, frame) -> None:
         jam = self.ensure_current_jam()
@@ -857,6 +1073,10 @@ class JamAnnotator:
                     self._handle_edit_key(key)
                 continue
 
+            if self.penalty_mode:
+                self._handle_penalty_key(key)
+                continue
+
             if key == 255:
                 continue
 
@@ -903,6 +1123,8 @@ class JamAnnotator:
                 jam = self.ensure_current_jam()
                 jam.lead_jammer = "unknown"
                 self.save()
+            elif key == ord("5"):
+                self.start_next_period()
             elif key == ord("-"):
                 self.adjust_playback_speed(-1)
             elif key in (ord("="), ord("+")):
@@ -928,6 +1150,8 @@ class JamAnnotator:
                 self.save()
             elif key == ord("m"):
                 self.begin_edit_mode()
+            elif key == ord("b"):
+                self.begin_penalty_mode()
             elif key == ord("d"):
                 self.delete_current_jam_if_empty()
             elif key in (81, ord("a")):  # common left arrow code on some platforms
