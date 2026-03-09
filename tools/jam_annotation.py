@@ -760,30 +760,129 @@ class JamAnnotator:
         ]
 
         help_lines = [
-            "Keys: space play | a/f 1s | j/l 5s | s start | e end | n/p jam | m edit | u undo | w save | q quit",
-            "Jump jams: [ prev start | ] next start | \ current start | { prev end | } next end",
-            "Speed: - slower | = faster | 0 normal speed",
-            "Pass hotkeys: Shift+Q/W/E/R/T = home 0/1/2/3/4, Shift+A/S/D/F/G = away 0/1/2/3/4, z/x undo last pass",
-            "Lead hotkeys: 1=home, 2=away, 3=none, 4=unknown",
-            "Period hotkey: 5 = start next period and reset jam count",
-            "Penalty hotkey: b = add penalty",
-            "Press H to toggle help",
+            "Playback:",
+            "  Space  – Play / Pause video",
+            "  a / f  – Step backward / forward 1 second",
+            "  j / l  – Jump backward / forward 5 seconds",
+            "  , / .  – Step one frame backward / forward",
+            "",
+            "Jam navigation:",
+            "  n      – Go to next jam",
+            "  p      – Go to previous jam",
+            "  [      – Jump to previous saved jam start",
+            "  ]      – Jump to next saved jam start",
+            "  \\      – Jump to current jam start",
+            "  {      – Jump to previous saved jam end",
+            "  }      – Jump to next saved jam end",
+            "",
+            "Marking jam boundaries:",
+            "  s      – Mark jam start at current time",
+            "  e      – Mark jam end at current time",
+            "  u      – Undo last boundary (end first, then start)",
+            "",
+            "Game structure:",
+            "  5      – Start next period (resets jam numbering)",
+            "",
+            "Scoring passes:",
+            "  Shift+Q/W/E/R/T – Add home pass worth 0/1/2/3/4 points",
+            "  Shift+A/S/D/F/G – Add away pass worth 0/1/2/3/4 points",
+            "  z                – Undo last home pass",
+            "  x                – Undo last away pass",
+            "",
+            "Star passes:",
+            "  In Edit mode (`m`):",
+            "  Navigate to 'Home star pass' or 'Away star pass'",
+            "  ` (backtick) – Toggle star pass Y/N",
+            "",
+            "Lead jammer:",
+            "  1 – Home lead",
+            "  2 – Away lead",
+            "  3 – No lead",
+            "  4 – Unknown / clear lead",
+            "",
+            "Editing jam details:",
+            "  m      – Open edit panel for lineups, jammers, scores, notes",
+            "  w      – Save edits when in edit mode",
+            "",
+            "Penalties:",
+            "  b      – Open penalty dialog",
+            "  Tab    – Cycle penalty fields (skater / code / team)",
+            "  Enter  – Save penalty",
+            "  Esc    – Cancel penalty entry",
+            "",
+            "Playback speed:",
+            "  -      – Slow down playback",
+            "  = or + – Speed up playback",
+            "  0      – Reset to normal speed",
+            "",
+            "General:",
+            "  w      – Save annotations",
+            "  q      – Quit program",
+            "  h      – Toggle this help screen",
         ]
 
         if self.show_help:
-            lines.extend(help_lines)
+            self._draw_help_panel(frame, help_lines)
         else:
             lines.append("Press H for help")
-
-        y = 35
-        for line in lines:
-            cv2.putText(frame, line, (20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1, cv2.LINE_AA)
-            y += 30
+            y = 35
+            for line in lines:
+                cv2.putText(frame, line, (20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1, cv2.LINE_AA)
+                y += 30
 
         if self.edit_mode:
             self.draw_edit_panel(frame)
         if self.penalty_mode:
             self.draw_penalty_panel(frame)
+
+    def _draw_help_panel(self, frame, help_lines: List[str]) -> None:
+        h, w = frame.shape[:2]
+        panel = frame.copy()
+
+        x0, y0 = 12, 12
+        x1 = max(320, int(w * 0.78))
+        y1 = h - 12
+
+        cv2.rectangle(panel, (x0, y0), (x1, y1), (8, 8, 24), -1)
+        cv2.rectangle(panel, (x0, y0), (x1, y1), (180, 200, 255), 1)
+        cv2.addWeighted(panel, 0.88, frame, 0.12, 0, frame)
+
+        cv2.putText(frame, "Help", (x0 + 16, y0 + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.72, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame, "Press H to hide", (x1 - 150, y0 + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220, 220, 220), 1, cv2.LINE_AA)
+
+        column_gap = 30
+        inner_x0 = x0 + 18
+        inner_y0 = y0 + 54
+        inner_x1 = x1 - 18
+        inner_y1 = y1 - 18
+        col_width = (inner_x1 - inner_x0 - column_gap) // 2
+
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.48
+        line_h = 18
+
+        columns = [[], []]
+        current_col = 0
+        current_lines = 0
+        max_lines_per_col = max(8, (inner_y1 - inner_y0) // line_h)
+
+        for line in help_lines:
+            if current_lines >= max_lines_per_col and current_col == 0:
+                current_col = 1
+                current_lines = 0
+            if current_lines >= max_lines_per_col:
+                break
+            columns[current_col].append(line)
+            current_lines += 1
+
+        for col_idx, col_lines in enumerate(columns):
+            base_x = inner_x0 + col_idx * (col_width + column_gap)
+            y = inner_y0
+            for line in col_lines:
+                color = (255, 255, 255) if line.endswith(":") else (225, 225, 225)
+                weight = 2 if line.endswith(":") else 1
+                cv2.putText(frame, line, (base_x, y), font, font_scale, color, weight, cv2.LINE_AA)
+                y += line_h
 
     def _collect_previous_values(self, field_name: str) -> List[str]:
         values: List[str] = []
