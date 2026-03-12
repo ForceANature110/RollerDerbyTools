@@ -205,12 +205,16 @@ class JamAnnotator:
         return jam
 
     def _apply_score_defaults(self, jam: JamRecord) -> None:
-        if jam.jam_number <= 1:
+        try:
+            jam_index = self.data.jams.index(jam)
+        except ValueError:
             return
-        prev_index = jam.jam_number - 2
-        if prev_index < 0 or prev_index >= len(self.data.jams):
+
+        if jam_index <= 0:
+            self._recalculate_jam_scores(jam)
             return
-        prev_jam = self.data.jams[prev_index]
+
+        prev_jam = self.data.jams[jam_index - 1]
 
         if jam.home_score_start is None and prev_jam.home_score_end is not None:
             jam.home_score_start = prev_jam.home_score_end
