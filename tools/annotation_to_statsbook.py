@@ -275,6 +275,104 @@ def write_lineups_sheet(ws, jams):
 
 
 # -----------------------------
+# Penalties sheet mapping
+# -----------------------------
+
+PENALTIES_PERIOD_COLUMNS = {
+    1: {
+        "home": ["B", "C", "D", "E", "F", "G", "H", "I", "J"],
+        "away": ["Q", "R", "S", "T", "U", "V", "W", "X", "Y"],
+    },
+    2: {
+        "home": ["AD", "AE", "AF", "AG", "AH", "AI", "AJ", "AK", "AL"],
+        "away": ["AS", "AT", "AU", "AV", "AW", "AX", "AY", "AZ", "BA"],
+    },
+}
+
+
+def build_penalty_row_map(skaters):
+    """
+    Penalties sheet uses one skater every two rows:
+    4/5, 6/7, 8/9 ... 42/43.
+    The top row holds the code and the lower row holds the jam number.
+    """
+    row_map = {}
+    for index, skater in enumerate(skaters[:20]):
+        row_map[as_text(skater)] = 4 + (index * 2)
+    return row_map
+
+
+def clear_penalty_rows(ws, row_map, period, team):
+    cols = PENALTIES_PERIOD_COLUMNS[period][team]
+    for top_row in row_map.values():
+        bottom_row = top_row + 1
+        for col in cols:
+            safe_write(ws, f"{col}{top_row}", "")
+            safe_write(ws, f"{col}{bottom_row}", "")
+
+
+def write_penalties_sheet(ws, jams, home_skaters, away_skaters):
+    home_row_map = build_penalty_row_map(home_skaters)
+    away_row_map = build_penalty_row_map(away_skaters)
+
+    # Clear all writable penalty entry cells first
+    for period in (1, 2):
+        clear_penalty_rows(ws, home_row_map, period, "home")
+        clear_penalty_rows(ws, away_row_map, period, "away")
+
+    # Track how many penalties each skater already has in period 1 so that
+    # period 2 starts after the greyed-out carryover columns.
+    period1_counts = {
+        "home": {skater: 0 for skater in home_row_map},
+        "away": {skater: 0 for skater in away_row_map},
+    }
+    period2_counts = {
+        "home": {skater: 0 for skater in home_row_map},
+        "away": {skater: 0 for skater in away_row_map},
+    }
+
+    sorted_jams = sorted(
+        jams,
+        key=lambda j: (j.get("period_number", 0), j.get("jam_number", 0))
+    )
+
+    for jam in sorted_jams:
+        period = jam.get("period_number")
+        jam_number = jam.get("jam_number")
+
+        for penalty in safe_list(jam.get("penalties")):
+            team = penalty.get("team")
+            skater = as_text(penalty.get("skater"))
+            code = as_text(penalty.get("code"))
+
+            if team == "home":
+                row_map = home_row_map
+            elif team == "away":
+                row_map = away_row_map
+            else:
+                continue
+
+            if skater not in row_map:
+                continue
+
+            top_row = row_map[skater]
+            bottom_row = top_row + 1
+            cols = PENALTIES_PERIOD_COLUMNS[period][team]
+
+            if period == 1:
+                slot_index = period1_counts[team][skater]
+                period1_counts[team][skater] += 1
+            else:
+                slot_index = period1_counts[team][skater] + period2_counts[team][skater]
+                period2_counts[team][skater] += 1
+
+            if 0 <= slot_index < len(cols):
+                col = cols[slot_index]
+                safe_write(ws, f"{col}{top_row}", code, text=True)
+                safe_write(ws, f"{col}{bottom_row}", jam_number)
+
+
+# -----------------------------
 # Main fill function
 # -----------------------------
 
@@ -284,7 +382,7 @@ def fill_statsbook(json_path, template_path, output_path):
 
     wb = load_workbook(template_path)
 
-    required_sheets = ["IGRF", "Score", "Lineups"]
+    required_sheets = ["IGRF", "Score", "Lineups", "Penalties"]
     for sheet_name in required_sheets:
         if sheet_name not in wb.sheetnames:
             raise ValueError(f"Workbook is missing required sheet: {sheet_name}")
@@ -299,6 +397,9 @@ def fill_statsbook(json_path, template_path, output_path):
 
     lineups_ws = wb["Lineups"]
     write_lineups_sheet(lineups_ws, jams)
+
+    penalties_ws = wb["Penalties"]
+    write_penalties_sheet(penalties_ws, jams, home_skaters, away_skaters)
 
     wb.save(output_path)
 
