@@ -493,71 +493,69 @@ class YouTubeAnnotatorWindow(QMainWindow):
             self.edit_prev_labels[field_name] = prev_label
 
     def _build_shortcuts(self) -> None:
-        shortcuts = {
-            "Space": self.toggle_play_pause,
-            "S": self.mark_start,
-            "E": self.mark_end,
-            "N": self.next_jam,
-            "P": self.previous_jam,
-            "5": self.start_next_period,
-            "Ctrl+S": self.save_annotations,
-            "\\": self.jump_to_current_jam_start,
-            "J": lambda: self.seek_relative(-5.0),
-            "L": lambda: self.seek_relative(5.0),
-            "A": lambda: self.seek_relative(-1.0),
-            "F": lambda: self.seek_relative(1.0),
-            "BracketLeft": self.jump_to_previous_saved_jam_start,
-            "BracketRight": self.jump_to_next_saved_jam_start,
-            "BraceLeft": self.jump_to_previous_saved_jam_end,
-            "BraceRight": self.jump_to_next_saved_jam_end,
-            "Comma": lambda: self.step_frame(-1),
-            "Period": lambda: self.step_frame(1),
-            "Minus": lambda: self.adjust_playback_speed(-1),
-            "Equal": lambda: self.adjust_playback_speed(1),
-            "0": self.reset_playback_speed,
-            "H": self.toggle_help_panel,
-            "M": self.toggle_edit_panel,
-            "B": self.toggle_penalty_panel,
-            "1": lambda: self.set_lead("home"),
-            "2": lambda: self.set_lead("away"),
-            "3": lambda: self.set_lead("none"),
-            "4": lambda: self.set_lead("unknown"),
-            "Z": lambda: self.undo_last_pass("home"),
-            "X": lambda: self.undo_last_pass("away"),
-            "D": self.delete_current_jam_if_empty,
-            "Escape": self.handle_escape,
-            "W": self.handle_w_key,
-            "Tab": lambda: self.move_edit_field(1),
-            "Return": lambda: self.move_edit_field(1),
-            "Enter": lambda: self.move_edit_field(1),
-            "Up": lambda: self.move_edit_field(-1),
-            "Down": lambda: self.move_edit_field(1),
-            "QuoteLeft": self.toggle_current_star_pass,
-        }
         self._shortcuts = []
-        for seq, callback in shortcuts.items():
-            shortcut = QShortcut(QKeySequence(seq), self)
+
+        def add_shortcut(key, callback, modifiers=Qt.NoModifier):
+            shortcut = QShortcut(QKeySequence(modifiers | key), self)
             shortcut.setContext(Qt.ApplicationShortcut)
             shortcut.activated.connect(callback)
             self._shortcuts.append(shortcut)
 
+        add_shortcut(Qt.Key_Space, self.toggle_play_pause)
+        add_shortcut(Qt.Key_S, self.mark_start)
+        add_shortcut(Qt.Key_E, self.mark_end)
+        add_shortcut(Qt.Key_N, self.next_jam)
+        add_shortcut(Qt.Key_P, self.previous_jam)
+        add_shortcut(Qt.Key_5, self.start_next_period)
+        add_shortcut(Qt.Key_S, self.save_annotations, Qt.ControlModifier)
+        add_shortcut(Qt.Key_Backslash, self.jump_to_current_jam_start)
+        add_shortcut(Qt.Key_J, lambda: self.seek_relative(-5.0))
+        add_shortcut(Qt.Key_L, lambda: self.seek_relative(5.0))
+        add_shortcut(Qt.Key_A, lambda: self.seek_relative(-1.0))
+        add_shortcut(Qt.Key_F, lambda: self.seek_relative(1.0))
+        add_shortcut(Qt.Key_BracketLeft, self.jump_to_previous_jam_and_seek_start)
+        add_shortcut(Qt.Key_BracketRight, self.jump_to_next_jam_and_seek_start)
+        add_shortcut(Qt.Key_BraceLeft, self.jump_to_previous_saved_jam_end)
+        add_shortcut(Qt.Key_BraceRight, self.jump_to_next_saved_jam_end)
+        add_shortcut(Qt.Key_Comma, lambda: self.step_frame(-1))
+        add_shortcut(Qt.Key_Period, lambda: self.step_frame(1))
+        add_shortcut(Qt.Key_Minus, lambda: self.adjust_playback_speed(-1))
+        add_shortcut(Qt.Key_Equal, lambda: self.adjust_playback_speed(1))
+        add_shortcut(Qt.Key_Plus, lambda: self.adjust_playback_speed(1))
+        add_shortcut(Qt.Key_0, self.reset_playback_speed)
+        add_shortcut(Qt.Key_H, self.toggle_help_panel)
+        add_shortcut(Qt.Key_M, self.toggle_edit_panel)
+        add_shortcut(Qt.Key_B, self.toggle_penalty_panel)
+        add_shortcut(Qt.Key_1, lambda: self.set_lead("home"))
+        add_shortcut(Qt.Key_2, lambda: self.set_lead("away"))
+        add_shortcut(Qt.Key_3, lambda: self.set_lead("none"))
+        add_shortcut(Qt.Key_4, lambda: self.set_lead("unknown"))
+        add_shortcut(Qt.Key_Z, lambda: self.undo_last_pass("home"))
+        add_shortcut(Qt.Key_X, lambda: self.undo_last_pass("away"))
+        add_shortcut(Qt.Key_D, self.delete_current_jam_if_empty)
+        add_shortcut(Qt.Key_Escape, self.handle_escape)
+        add_shortcut(Qt.Key_W, self.handle_w_key)
+        add_shortcut(Qt.Key_Tab, lambda: self.move_edit_field(1))
+        add_shortcut(Qt.Key_Return, lambda: self.move_edit_field(1))
+        add_shortcut(Qt.Key_Enter, lambda: self.move_edit_field(1))
+        add_shortcut(Qt.Key_Up, lambda: self.move_edit_field(-1))
+        add_shortcut(Qt.Key_Down, lambda: self.move_edit_field(1))
+        add_shortcut(Qt.Key_QuoteLeft, self.toggle_current_star_pass)
+
         pass_shortcuts = {
-            "Shift+Q": ("home", 0),
-            "Shift+W": ("home", 1),
-            "Shift+E": ("home", 2),
-            "Shift+R": ("home", 3),
-            "Shift+T": ("home", 4),
-            "Shift+A": ("away", 0),
-            "Shift+S": ("away", 1),
-            "Shift+D": ("away", 2),
-            "Shift+F": ("away", 3),
-            "Shift+G": ("away", 4),
+            Qt.Key_Q: ("home", 0),
+            Qt.Key_W: ("home", 1),
+            Qt.Key_E: ("home", 2),
+            Qt.Key_R: ("home", 3),
+            Qt.Key_T: ("home", 4),
+            Qt.Key_A: ("away", 0),
+            Qt.Key_S: ("away", 1),
+            Qt.Key_D: ("away", 2),
+            Qt.Key_F: ("away", 3),
+            Qt.Key_G: ("away", 4),
         }
-        for seq, (team, pts) in pass_shortcuts.items():
-            shortcut = QShortcut(QKeySequence(seq), self)
-            shortcut.setContext(Qt.ApplicationShortcut)
-            shortcut.activated.connect(lambda t=team, p=pts: self.append_pass(t, p))
-            self._shortcuts.append(shortcut)
+        for key, (team, pts) in pass_shortcuts.items():
+            add_shortcut(key, lambda t=team, p=pts: self.append_pass(t, p), Qt.ShiftModifier)
 
     def _current_edit_field_name(self) -> str:
         return TEXT_INPUT_FIELDS[self.edit_field_index]
@@ -847,12 +845,15 @@ Playback
   a / f ........ Step backward / forward 1 second
   j / l ........ Jump backward / forward 5 seconds
   , / . ........ Approximate one-frame step backward / forward and pause playback
+  - ............ Slow down playback
+  = or + ....... Speed up playback
+  0 ............ Reset to normal speed
 
 Jam navigation
   n ............ Go to next jam
   p ............ Go to previous jam
-  [ ............ Jump to previous saved jam start
-  ] ............ Jump to next saved jam start
+  [ ............ Move to previous jam and seek to its start
+  ] ............ Move to next jam and seek to its start
   \ ........... Jump to current jam start
   { ............ Jump to previous saved jam end
   } ............ Jump to next saved jam end
@@ -871,10 +872,6 @@ Scoring passes
   z ................. Undo last home pass
   x ................. Undo last away pass
 
-Star passes
-  In Edit panel, move to Home star pass or Away star pass
-  ` ................. Toggle current star pass checkbox
-
 Lead jammer
   1 ............ Home lead
   2 ............ Away lead
@@ -885,17 +882,13 @@ Editing jam details
   m ............ Show / hide edit panel
   Tab / Enter .. Move to next edit field
   Up / Down .... Move between edit fields
+  ` ............ Toggle current Home/Away star pass when that field is selected
   w ............ Save annotations and close edit panel
   Esc .......... Close edit / penalty / help panel
 
 Penalties
   b ............ Show / hide penalty panel
   Enter ........ Save penalty
-
-Playback speed
-  - ............ Slow down playback
-  = or + ....... Speed up playback
-  0 ............ Reset to normal speed
 
 General
   Ctrl+S ....... Save annotations
@@ -1083,6 +1076,29 @@ General
         jam = self.current_jam()
         if jam.start_time is not None:
             self.seek_to(jam.start_time)
+
+    def jump_to_previous_jam_and_seek_start(self) -> None:
+        if self.current_jam_index <= 0:
+            jam = self.current_jam()
+            if jam.start_time is not None:
+                self.seek_to(jam.start_time)
+            self.refresh_ui()
+            return
+        self.current_jam_index -= 1
+        jam = self.current_jam()
+        if jam.start_time is not None:
+            self.seek_to(jam.start_time)
+        self.refresh_ui()
+
+    def jump_to_next_jam_and_seek_start(self) -> None:
+        previous_index = self.current_jam_index
+        self.current_jam_index += 1
+        jam = self.current_jam()
+        self._apply_score_defaults(jam)
+        self._prefill_next_jam_from_recent_penalties(previous_index, self.current_jam_index)
+        if jam.start_time is not None:
+            self.seek_to(jam.start_time)
+        self.refresh_ui()
 
     def jump_to_previous_saved_jam_start(self) -> None:
         for idx in range(self.current_jam_index - 1, -1, -1):
