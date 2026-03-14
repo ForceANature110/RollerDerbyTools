@@ -176,17 +176,59 @@ def index_jams(jams):
     return {(j["period_number"], j["jam_number"]): j for j in jams}
 
 
+def parse_jam_marker(value):
+    text = as_text(value).upper()
+    if text == "":
+        return None
+    if text == "SP":
+        return "SP"
+    return as_int(value)
+
+
+def read_lineup_cells(ws, row, columns):
+    return nonempty_list([ws[f"{col}{row}"].value for col in columns])
+
+
 def extract_lineups(lineups_ws, jams_by_key):
     for period_number, layout in LINEUPS_LAYOUT.items():
+        current_jam_number = 0
+
         for row in range(layout["start_row"], layout["end_row"] + 1):
-            jam_number = row - layout["start_row"] + 1
-            key = (period_number, jam_number)
+            home_marker = parse_jam_marker(lineups_ws[f"A{row}"].value)
+            away_marker = parse_jam_marker(lineups_ws[f"AA{row}"].value)
+
+            home_lineup = read_lineup_cells(lineups_ws, row, HOME_LINEUP_COLUMNS)
+            away_lineup = read_lineup_cells(lineups_ws, row, AWAY_LINEUP_COLUMNS)
+            has_any_lineup = bool(home_lineup or away_lineup)
+
+            numeric_markers = [m for m in (home_marker, away_marker) if isinstance(m, int)]
+            if numeric_markers:
+                current_jam_number = numeric_markers[0]
+            elif home_marker == "SP" or away_marker == "SP":
+                if current_jam_number == 0:
+                    continue
+            elif has_any_lineup:
+                # Fallback for workbooks where the lineup jam marker cells are formula-driven
+                # and do not have cached values. Treat the next populated lineup row as the next jam.
+                current_jam_number += 1
+            else:
+                continue
+
+            key = (period_number, current_jam_number)
             if key not in jams_by_key:
                 continue
 
             jam = jams_by_key[key]
-            jam["home_lineup"] = nonempty_list([lineups_ws[f"{col}{row}"].value for col in HOME_LINEUP_COLUMNS])
-            jam["away_lineup"] = nonempty_list([lineups_ws[f"{col}{row}"].value for col in AWAY_LINEUP_COLUMNS])
+
+            if home_lineup:
+                jam["home_lineup"] = home_lineup
+            if away_lineup:
+                jam["away_lineup"] = away_lineup
+
+            if home_marker == "SP":
+                jam["home_star_pass"] = True
+            if away_marker == "SP":
+                jam["away_star_pass"] = True
 
 
 # -----------------------------
@@ -268,7 +310,7 @@ def reconstruct_running_scores(jams):
 # -----------------------------
 
 def statsbook_to_annotation_json(xlsx_path: Path, output_path: Path | None = None):
-    wb = load_workbook(xlsx_path, data_only=False)
+    wb = load_workbook(xlsx_path, data_only=True)
 
     required_sheets = ["Score", "Lineups", "Penalties"]
     for sheet_name in required_sheets:
